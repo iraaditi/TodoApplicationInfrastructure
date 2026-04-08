@@ -1,15 +1,23 @@
-# frontend/Dockerfile
-FROM node:18-alpine as build
+
+FROM node:20-alpine AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm install
 COPY . .
-# We must pass the Razorpay key at build time for Vite
+
+# Prevent out-of-memory errors during Vite build on Alpine
+ENV NODE_OPTIONS="--max-old-space-size=4096"
+
+ARG VITE_API_URL
 ARG VITE_RAZORPAY_KEY_ID
+ARG VITE_GOOGLE_CLIENT_ID
+
+ENV VITE_API_URL=$VITE_API_URL
 ENV VITE_RAZORPAY_KEY_ID=$VITE_RAZORPAY_KEY_ID
+ENV VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID
+
 RUN npm run build
 
-# Use Nginx to serve the static frontend files
 FROM nginx:alpine
 COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 80

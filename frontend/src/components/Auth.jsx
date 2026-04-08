@@ -87,6 +87,7 @@ const Auth = ({ setIsLoggedIn, setIsPremium }) => {
             onSuccess={handleGoogleSuccess}
             onError={() => setError('Google Sign-In was unsuccessful')}
             useOneTap={false}
+            text={isLogin ? 'signin_with' : 'signup_with'}
           />
         </div>
 

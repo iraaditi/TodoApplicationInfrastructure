@@ -19,8 +19,10 @@ mongoose.connect(process.env.MONGO_URI)
   .catch(err => console.error('❌ MongoDB Error:', err));
 
 const redisClient = createClient({ url: process.env.REDIS_URL });
-redisClient.on('error', (err) => console.log('❌ Redis Error', err));
-redisClient.connect().then(() => console.log('✅ Redis Connected'));
+redisClient.on('error', (err) => console.error('❌ Redis Error:', err.message));
+redisClient.connect()
+  .then(() => console.log('✅ Redis Connected'))
+  .catch(err => console.log('❌ Redis Connection Failed. Please ensure Redis is running!'));
 
 //razorpay implementation
 const razorpay = new Razorpay({
@@ -64,18 +66,25 @@ const authenticateToken = (req, res, next) => {
 app.post('/register', async (req, res) => {
   const { username, password } = req.body;
   try {
-    const isDuplicate = await redisClient.sIsMember('usernames', username);
-    if (isDuplicate) {
-      return res.status(400).json({ message: 'Username already exists! Choose another.' });
+    try {
+      const isDuplicate = await redisClient.sIsMember('usernames', username);
+      if (isDuplicate) {
+        return res.status(400).json({ message: 'Username already exists! Choose another.' });
+      }
+    } catch (redisError) {
+      console.log('Redis check failed, relying on MongoDB...');
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
     const newUser = new User({ username, password: hashedPassword });
     await newUser.save();
 
-    await redisClient.sAdd('usernames', username);
+    redisClient.sAdd('usernames', username).catch(() => {});
     res.status(201).json({ message: 'User registered successfully!' });
   } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({ message: 'Username already exists! Choose another.' });
+    }
     res.status(500).json({ message: 'Server error', error });
   }
 });
@@ -121,7 +130,7 @@ app.post('/google-login', async (req, res) => {
         googleId: googleId 
       });
       await user.save();
-      await redisClient.sAdd('usernames', email);
+      redisClient.sAdd('usernames', email).catch(() => {});
     }
 
     const jwtToken = jwt.sign(
