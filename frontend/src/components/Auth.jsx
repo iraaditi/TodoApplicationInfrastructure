@@ -1,6 +1,6 @@
-// frontend/src/components/Auth.jsx
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { GoogleLogin } from '@react-oauth/google';
 import api from '../api';
 
 const Auth = ({ setIsLoggedIn, setIsPremium }) => {
@@ -19,17 +19,30 @@ const Auth = ({ setIsLoggedIn, setIsPremium }) => {
       const response = await api.post(endpoint, { username, password });
       
       if (isLogin) {
-        // Save token to local storage
         localStorage.setItem('token', response.data.token);
         setIsLoggedIn(true);
         setIsPremium(response.data.isPremium);
-        navigate('/dashboard'); // Send user to tasks page
+        navigate('/dashboard');
       } else {
         alert('Registration successful! Please log in.');
         setIsLogin(true);
       }
     } catch (err) {
       setError(err.response?.data?.message || 'An error occurred');
+    }
+  };
+
+  const handleGoogleSuccess = async (credentialResponse) => {
+    try {
+      const response = await api.post('/google-login', {
+        token: credentialResponse.credential,
+      });
+      localStorage.setItem('token', response.data.token);
+      setIsLoggedIn(true);
+      setIsPremium(response.data.isPremium);
+      navigate('/dashboard');
+    } catch (err) {
+      setError('Google Sign-In failed on the server.');
     }
   };
 
@@ -42,10 +55,10 @@ const Auth = ({ setIsLoggedIn, setIsPremium }) => {
         
         {error && <div className="bg-red-100 text-red-700 p-2 rounded mb-4 text-sm text-center">{error}</div>}
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4 mb-6">
           <input
             type="text"
-            placeholder="Username"
+            placeholder={isLogin ? "Username or Email" : "Username"}
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             className="border border-blue-200 p-3 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
@@ -64,7 +77,20 @@ const Auth = ({ setIsLoggedIn, setIsPremium }) => {
           </button>
         </form>
 
-        <p className="mt-4 text-center text-sm text-gray-600">
+        <div className="relative flex items-center justify-center mb-6">
+          <span className="absolute bg-white px-2 text-sm text-gray-500">OR</span>
+          <div className="w-full h-px bg-gray-300"></div>
+        </div>
+
+        <div className="flex justify-center">
+          <GoogleLogin
+            onSuccess={handleGoogleSuccess}
+            onError={() => setError('Google Sign-In was unsuccessful')}
+            useOneTap={false}
+          />
+        </div>
+
+        <p className="mt-6 text-center text-sm text-gray-600">
           {isLogin ? "Don't have an account? " : "Already have an account? "}
           <button onClick={() => setIsLogin(!isLogin)} className="text-blue-600 font-semibold hover:underline">
             {isLogin ? 'Sign Up' : 'Sign In'}
