@@ -18,11 +18,23 @@ mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('✅ MongoDB Connected'))
   .catch(err => console.error('❌ MongoDB Error:', err));
 
-const redisClient = createClient({ url: process.env.REDIS_URL });
-redisClient.on('error', (err) => console.error('❌ Redis Error:', err.message));
-redisClient.connect()
-  .then(() => console.log('✅ Redis Connected'))
-  .catch(err => console.log('❌ Redis Connection Failed. Please ensure Redis is running!'));
+const redisClient = redis.createClient({
+    url: `redis://${process.env.REDIS_HOST}:${process.env.REDIS_PORT}`,
+    socket: {
+        connectTimeout: 5000 // Fails if it can't connect in 5 seconds
+    },
+    disableOfflineQueue: true // Fails immediately if connection drops
+});
+redisClient.on('connect', () => {
+    console.log('✅ Redis Connected Successfully to AWS Server!');
+});
+redisClient.on('error', (err) => {
+    console.error('❌ Redis Connection Error:', err.message);
+    console.log('⚠️ Falling back to MongoDB for this request...');
+});
+redisClient.on('end', () => {
+    console.log('🔌 Redis Connection Closed.');
+});
 
 //razorpay implementation
 const razorpay = new Razorpay({

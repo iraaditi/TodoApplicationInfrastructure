@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: todo-backend
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: todo-backend
@@ -17,26 +17,15 @@ spec:
         image: iraaditi/todo-backend:v1
         ports:
         - containerPort: 5000
-        env:
-        - name: PORT
-          value: "5000"
-        - name: MONGO_URI
-          value: "paste_your_mongodb_atlas_uri_here"
-        - name: REDIS_URL
-          value: "redis://redis-service:6379" # Connects to the Redis Pod
-        - name: JWT_SECRET
-          value: "your_secret_key"
-        - name: RAZORPAY_KEY_ID
-          value: "your_razorpay_key"
-        - name: RAZORPAY_KEY_SECRET
-          value: "your_razorpay_secret"
-        - name: GOOGLE_CLIENT_ID
-          value: "your_google_client_id"
+        # ADD THESE 3 LINES:
+        envFrom:
+        - secretRef:
+            name: backend-secrets
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: backend-service
+  name: todo-backend-svc
 spec:
   type: LoadBalancer
   selector:
