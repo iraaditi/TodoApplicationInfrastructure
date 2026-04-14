@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
-const { createClient } = require('redis');
+const redis = require('redis');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -21,20 +21,17 @@ mongoose.connect(process.env.MONGO_URI)
 const redisClient = redis.createClient({
     url: `redis://${process.env.REDIS_HOST}:${process.env.REDIS_PORT}`,
     socket: {
-        connectTimeout: 5000 // Fails if it can't connect in 5 seconds
+        reconnectStrategy: false // (or whatever settings we added yesterday)
     },
-    disableOfflineQueue: true // Fails immediately if connection drops
+    disableOfflineQueue: true
 });
-redisClient.on('connect', () => {
-    console.log('✅ Redis Connected Successfully to AWS Server!');
-});
-redisClient.on('error', (err) => {
-    console.error('❌ Redis Connection Error:', err.message);
-    console.log('⚠️ Falling back to MongoDB for this request...');
-});
-redisClient.on('end', () => {
-    console.log('🔌 Redis Connection Closed.');
-});
+
+// The event listeners (this is what prints to the console)
+redisClient.on('connect', () => console.log('✅ Redis Connected Successfully to AWS Server!'));
+redisClient.on('error', (err) => console.log('❌ Redis Connection Error:', err.message));
+
+// THE CRITICAL MISSING LINE: Tell it to actually connect!
+redisClient.connect().catch(console.error);
 
 //razorpay implementation
 const razorpay = new Razorpay({

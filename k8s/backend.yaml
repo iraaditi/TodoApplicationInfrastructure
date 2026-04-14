@@ -14,10 +14,9 @@ spec:
     spec:
       containers:
       - name: backend
-        image: iraaditi/todo-backend:v1
+        image: iraaditi/todo-backend:v5
         ports:
         - containerPort: 5000
-        # ADD THESE 3 LINES:
         envFrom:
         - secretRef:
             name: backend-secrets
