@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: frontend
-        image: iraaditi/todo-frontend:v1
+        image: iraaditi/todo-frontend:latest
         ports:
         - containerPort: 80
 ---
