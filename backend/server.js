@@ -227,6 +227,24 @@ app.post('/mfa/login-verify', async (req, res) => {
 });
 
 // MFA Routes
+app.get('/mfa/status', authenticateToken, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.userId);
+        res.json({ mfaEnabled: user.mfaEnabled });
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching MFA status', error });
+    }
+});
+
+app.post('/mfa/disable', authenticateToken, async (req, res) => {
+    try {
+        await User.findByIdAndUpdate(req.user.userId, { mfaEnabled: false, mfaSecret: null });
+        res.json({ message: 'MFA disabled successfully.' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error disabling MFA', error });
+    }
+});
+
 app.post('/mfa/setup', authenticateToken, async (req, res) => {
     try {
         const secret = speakeasy.generateSecret({ 
