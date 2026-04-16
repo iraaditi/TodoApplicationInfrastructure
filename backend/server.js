@@ -8,10 +8,49 @@ const jwt = require('jsonwebtoken');
 const Razorpay = require('razorpay');
 const crypto = require('crypto');
 const { OAuth2Client } = require('google-auth-library');
+const speakeasy = require('speakeasy');
+const QRCode = require('qrcode');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+//ENCRYPTION
+const algorithm = 'chacha20-poly1305';
+const keyHex = process.env.CHACHA20_KEY;
+if (!keyHex || keyHex.length !== 64) {
+    console.warn('WARNING: CHACHA20_KEY is missing or invalid in .env!');
+}
+const key = keyHex ? Buffer.from(keyHex, 'hex') : crypto.randomBytes(32);
+
+const encrypt = (text) => {
+    const nonce = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv(algorithm, key, nonce, { authTagLength: 16 });
+    let encrypted = cipher.update(text, 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+    const authTag = cipher.getAuthTag().toString('hex');
+    return `${nonce.toString('hex')}:${authTag}:${encrypted}`;
+};
+
+const decrypt = (cipherTextData) => {
+    if (!cipherTextData) return '';
+    const parts = cipherTextData.split(':');
+    if (parts.length !== 3) return cipherTextData;
+    
+    try {
+        const nonce = Buffer.from(parts[0], 'hex');
+        const authTag = Buffer.from(parts[1], 'hex');
+        const encrypted = parts[2];
+        const decipher = crypto.createDecipheriv(algorithm, key, nonce, { authTagLength: 16 });
+        decipher.setAuthTag(authTag);
+        let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+        decrypted += decipher.final('utf8');
+        return decrypted;
+    } catch (err) {
+        return "⚠️ [Encrypted Content]";
+    }
+};
+
 
 //connecting database
 mongoose.connect(process.env.MONGO_URI)
@@ -44,7 +83,9 @@ const UserSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true }, 
   password: { type: String }, 
   googleId: { type: String },
-  isPremium: { type: Boolean, default: false } 
+  isPremium: { type: Boolean, default: false },
+  mfaSecret: { type: String, default: null },
+  mfaEnabled: { type: Boolean, default: false } 
 });
 const User = mongoose.model('User', UserSchema);
 
@@ -107,12 +148,15 @@ app.post('/login', async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: 'Invalid credentials!' });
 
+    if (user.mfaEnabled) {
+        return res.json({ mfaRequired: true, tempUserId: user._id, message: 'MFA code required' });
+    }
+
     const token = jwt.sign(
       { userId: user._id, username: user.username, isPremium: user.isPremium }, 
       process.env.JWT_SECRET, 
       { expiresIn: '24h' }
     );
-
     res.json({ message: 'Login successful', token, isPremium: user.isPremium });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error });
@@ -134,12 +178,13 @@ app.post('/google-login', async (req, res) => {
     let user = await User.findOne({ username: email });
 
     if (!user) {
-      user = new User({ 
-        username: email, 
-        googleId: googleId 
-      });
+      user = new User({ username: email, googleId: googleId });
       await user.save();
       redisClient.sAdd('usernames', email).catch(() => {});
+    }
+
+    if (user.mfaEnabled) {
+        return res.json({ mfaRequired: true, tempUserId: user._id, message: 'MFA code required' });
     }
 
     const jwtToken = jwt.sign(
@@ -147,20 +192,91 @@ app.post('/google-login', async (req, res) => {
       process.env.JWT_SECRET, 
       { expiresIn: '24h' }
     );
-
     res.json({ message: 'Google Login successful', token: jwtToken, isPremium: user.isPremium });
   } catch (error) {
-    console.error('Google verification failed:', error);
     res.status(400).json({ message: 'Google Authentication Failed' });
   }
 });
+
+app.post('/mfa/login-verify', async (req, res) => {
+    const { tempUserId, token } = req.body;
+    try {
+        const user = await User.findById(tempUserId);
+        if (!user || !user.mfaEnabled) return res.status(400).json({ message: 'Invalid request' });
+
+        const isVerified = speakeasy.totp.verify({
+            secret: user.mfaSecret,
+            encoding: 'base32',
+            token: token,
+            window: 1
+        });
+
+        if (isVerified) {
+            const jwtToken = jwt.sign(
+                { userId: user._id, username: user.username, isPremium: user.isPremium }, 
+                process.env.JWT_SECRET, 
+                { expiresIn: '24h' }
+            );
+            res.json({ message: 'Login successful', token: jwtToken, isPremium: user.isPremium });
+        } else {
+            res.status(400).json({ message: 'Invalid 6-digit code.' });
+        }
+    } catch (error) {
+        res.status(500).json({ message: 'Server error', error });
+    }
+});
+
+// MFA Routes
+app.post('/mfa/setup', authenticateToken, async (req, res) => {
+    try {
+        const secret = speakeasy.generateSecret({ 
+            name: `MyTodoApp (${req.user.username})` 
+        });
+        
+        await User.findByIdAndUpdate(req.user.userId, { mfaSecret: secret.base32 });
+        const qrCodeUrl = await QRCode.toDataURL(secret.otpauth_url);
+        
+        res.json({ qrCodeUrl });
+    } catch (error) {
+        res.status(500).json({ message: 'Error setting up MFA', error });
+    }
+});
+
+app.post('/mfa/verify', authenticateToken, async (req, res) => {
+    try {
+        const { token } = req.body;
+        const user = await User.findById(req.user.userId);
+        
+        const isVerified = speakeasy.totp.verify({
+            secret: user.mfaSecret,
+            encoding: 'base32',
+            token: token,
+            window: 1
+        });
+        
+        if (isVerified) {
+            await User.findByIdAndUpdate(req.user.userId, { mfaEnabled: true });
+            res.json({ message: 'MFA successfully enabled!' });
+        } else {
+            res.status(400).json({ message: 'Invalid 6-digit code. Try again.' });
+        }
+    } catch (error) {
+        res.status(500).json({ message: 'Error verifying MFA', error });
+    }
+});
+
 
 
 //task functionalities
 app.get('/tasks', authenticateToken, async (req, res) => {
   try {
     const tasks = await Task.find({ userId: req.user.userId }).sort({ order: 1 });
-    res.json(tasks);
+    const decryptedTasks = tasks.map(task => ({
+        ...task._doc,
+        title: decrypt(task.title) 
+    }));
+    
+    res.json(decryptedTasks);
   } catch (error) {
     res.status(500).json({ message: 'Error fetching tasks', error });
   }
@@ -170,12 +286,13 @@ app.post('/tasks', authenticateToken, async (req, res) => {
   try {
     const newTask = new Task({
       userId: req.user.userId,
-      title: req.body.title,
+      title: encrypt(req.body.title),
       colorCode: req.body.colorCode || '#ffffff',
       order: req.body.order || 0
     });
     const savedTask = await newTask.save();
-    res.status(201).json(savedTask);
+
+    res.status(201).json({ ...savedTask._doc, title: decrypt(savedTask.title) });
   } catch (error) {
     res.status(500).json({ message: 'Error creating task', error });
   }
@@ -198,12 +315,18 @@ app.put('/tasks/reorder', authenticateToken, async (req, res) => {
 
 app.put('/tasks/:id', authenticateToken, async (req, res) => {
   try {
+    let updateData = { ...req.body };
+    if (updateData.title) {
+        updateData.title = encrypt(updateData.title);
+    }
+
     const updatedTask = await Task.findOneAndUpdate(
-      { _id: req.params.id, userId: req.user.userId }, // Ensure they only edit THEIR task
-      req.body,
+      { _id: req.params.id, userId: req.user.userId },
+      updateData,
       { new: true }
     );
-    res.json(updatedTask);
+    
+    res.json({ ...updatedTask._doc, title: decrypt(updatedTask.title) });
   } catch (error) {
     res.status(500).json({ message: 'Error updating task', error });
   }

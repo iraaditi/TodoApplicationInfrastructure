@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
+import { Link } from 'react-router-dom';
 
 const Dashboard = ({ setIsLoggedIn, isPremium, setIsPremium }) => {
   const navigate = useNavigate();
@@ -180,7 +181,7 @@ const Dashboard = ({ setIsLoggedIn, isPremium, setIsPremium }) => {
     </div>
   );
 
-  return (
+return (
     <div className="min-h-screen p-8">
       <header className="max-w-4xl mx-auto flex justify-between items-center bg-white p-6 rounded-lg shadow-md mb-8 border-t-4 border-blue-600">
         <div>
@@ -191,15 +192,24 @@ const Dashboard = ({ setIsLoggedIn, isPremium, setIsPremium }) => {
             <span className="text-sm text-gray-500">Free Tier</span>
           )}
         </div>
-        <div className="flex gap-4">
+        
+        {/* --- BUTTON CONTAINER --- */}
+        <div className="flex gap-4 items-center">
+          
           {!isPremium && (
             <button onClick={handleBuyPremium} className="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded shadow transition">
               Upgrade (₹500)
             </button>
           )}
+
+          <Link to="/settings" className="bg-gray-600 text-white font-bold px-4 py-2 rounded hover:bg-gray-700 transition shadow">
+            Security Settings
+          </Link>
+
           <button onClick={handleLogout} className="border border-red-500 text-red-500 hover:bg-red-50 font-bold py-2 px-4 rounded transition">
             Logout
           </button>
+          
         </div>
       </header>
 

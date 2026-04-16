@@ -9,6 +9,9 @@ const Auth = ({ setIsLoggedIn, setIsPremium }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const navigate = useNavigate();
+  const [showMfa, setShowMfa] = useState(false);
+  const [mfaToken, setMfaToken] = useState('');
+  const [tempUserId, setTempUserId] = useState('');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -19,6 +22,12 @@ const Auth = ({ setIsLoggedIn, setIsPremium }) => {
       const response = await api.post(endpoint, { username, password });
       
       if (isLogin) {
+        if (response.data.mfaRequired) {
+          setTempUserId(response.data.tempUserId);
+          setShowMfa(true);
+          return
+        }
+
         localStorage.setItem('token', response.data.token);
         setIsLoggedIn(true);
         setIsPremium(response.data.isPremium);
@@ -37,6 +46,13 @@ const Auth = ({ setIsLoggedIn, setIsPremium }) => {
       const response = await api.post('/google-login', {
         token: credentialResponse.credential,
       });
+
+      if (response.data.mfaRequired) {
+        setTempUserId(response.data.tempUserId);
+        setShowMfa(true);
+        return; 
+      }
+
       localStorage.setItem('token', response.data.token);
       setIsLoggedIn(true);
       setIsPremium(response.data.isPremium);
@@ -46,57 +62,104 @@ const Auth = ({ setIsLoggedIn, setIsPremium }) => {
     }
   };
 
+  const handleMfaSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    try {
+      const response = await api.post('/mfa/login-verify', {
+        tempUserId,
+        token: mfaToken
+      });
+
+      localStorage.setItem('token', response.data.token);
+      setIsLoggedIn(true);
+      setIsPremium(response.data.isPremium);
+      navigate('/dashboard');
+    } catch (err) {
+      setError(err.response?.data?.message || 'Invalid 6-digit code');
+    }
+  };
+
   return (
     <div className="flex items-center justify-center min-h-screen">
       <div className="bg-white p-8 rounded-lg shadow-xl border-t-4 border-blue-600 w-96">
         <h2 className="text-2xl font-bold text-center text-blue-800 mb-6">
-          {isLogin ? 'Welcome Back' : 'Create Account'}
+          {showMfa ? 'Two-Factor Authentication' : (isLogin ? 'Welcome Back' : 'Create Account')}
         </h2>
         
         {error && <div className="bg-red-100 text-red-700 p-2 rounded mb-4 text-sm text-center">{error}</div>}
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4 mb-6">
-          <input
-            type="text"
-            placeholder={isLogin ? "Username or Email" : "Username"}
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            className="border border-blue-200 p-3 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-            required
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="border border-blue-200 p-3 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-            required
-          />
-          <button type="submit" className="bg-blue-600 text-white font-bold py-3 rounded hover:bg-blue-700 transition">
-            {isLogin ? 'Sign In' : 'Sign Up'}
-          </button>
-        </form>
+        {showMfa ? (
+          <form onSubmit={handleMfaSubmit} className="flex flex-col gap-4 mb-6">
+            <p className="text-sm text-center text-gray-600 mb-2">
+              Please enter the 6-digit code from your authenticator app.
+            </p>
+            <input
+              type="text"
+              placeholder="6-Digit Code"
+              value={mfaToken}
+              onChange={(e) => setMfaToken(e.target.value)}
+              className="border border-blue-200 p-3 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-center text-2xl tracking-widest"
+              maxLength="6"
+              required
+            />
+            <button type="submit" className="bg-blue-600 text-white font-bold py-3 rounded hover:bg-blue-700 transition">
+              Verify
+            </button>
+            <button 
+              type="button" 
+              onClick={() => { setShowMfa(false); setMfaToken(''); }} 
+              className="text-sm text-gray-500 hover:text-gray-700 mt-2"
+            >
+              Cancel
+            </button>
+          </form>
+        ) : (
+          <>
+            <form onSubmit={handleSubmit} className="flex flex-col gap-4 mb-6">
+              <input
+                type="text"
+                placeholder={isLogin ? "Username or Email" : "Username"}
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="border border-blue-200 p-3 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                required
+              />
+              <input
+                type="password"
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="border border-blue-200 p-3 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                required
+              />
+              <button type="submit" className="bg-blue-600 text-white font-bold py-3 rounded hover:bg-blue-700 transition">
+                {isLogin ? 'Sign In' : 'Sign Up'}
+              </button>
+            </form>
 
-        <div className="relative flex items-center justify-center mb-6">
-          <span className="absolute bg-white px-2 text-sm text-gray-500">OR</span>
-          <div className="w-full h-px bg-gray-300"></div>
-        </div>
+            <div className="relative flex items-center justify-center mb-6">
+              <span className="absolute bg-white px-2 text-sm text-gray-500">OR</span>
+              <div className="w-full h-px bg-gray-300"></div>
+            </div>
 
-        <div className="flex justify-center">
-          <GoogleLogin
-            onSuccess={handleGoogleSuccess}
-            onError={() => setError('Google Sign-In was unsuccessful')}
-            useOneTap={false}
-            text={isLogin ? 'signin_with' : 'signup_with'}
-          />
-        </div>
+            <div className="flex justify-center">
+              <GoogleLogin
+                onSuccess={handleGoogleSuccess}
+                onError={() => setError('Google Sign-In was unsuccessful')}
+                useOneTap={false}
+                text={isLogin ? 'signin_with' : 'signup_with'}
+              />
+            </div>
 
-        <p className="mt-6 text-center text-sm text-gray-600">
-          {isLogin ? "Don't have an account? " : "Already have an account? "}
-          <button onClick={() => setIsLogin(!isLogin)} className="text-blue-600 font-semibold hover:underline">
-            {isLogin ? 'Sign Up' : 'Sign In'}
-          </button>
-        </p>
+            <p className="mt-6 text-center text-sm text-gray-600">
+              {isLogin ? "Don't have an account? " : "Already have an account? "}
+              <button onClick={() => setIsLogin(!isLogin)} className="text-blue-600 font-semibold hover:underline">
+                {isLogin ? 'Sign Up' : 'Sign In'}
+              </button>
+            </p>
+          </>
+        )}
       </div>
     </div>
   );
